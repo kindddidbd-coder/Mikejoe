@@ -1,0 +1,50 @@
+import os
+import requests
+from bs4 import BeautifulSoup
+import re
+import urllib3
+from flask import Flask, jsonify
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+app = Flask(__name__)
+
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
+
+def scan_pastebin():
+    loot = []
+    try:
+        res = requests.get("https://pastebin.com/archive", headers=HEADERS, verify=False)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        table = soup.find('table', class_='maintable')
+        if not table: return ["No paste table found."]
+
+        links = table.find_all('a', href=True)
+        
+        for link in links:
+            paste_url = "https://pastebin.com" + link['href']
+            # Let's just grab the top 5 recent pastes to be quick
+            raw_url = paste_url + "/raw"
+            try:
+                paste_res = requests.get(raw_url, headers=HEADERS, verify=False, timeout=5)
+                combo_pattern = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+:[^\s]+')
+                combos = combo_pattern.findall(paste_res.text)
+                if combos:
+                    loot.append(f"Found {len(combos)} combos at {paste_url}")
+                    # In a real build, you'd save these. For now, just report.
+            except:
+                pass
+                
+        return loot if loot else ["Hunt complete. No combos found in recent pastes."]
+    except Exception as e:
+        return [f"Error: {e}"]
+
+@app.route('/')
+def hunt():
+    results = scan_pastebin()
+    return jsonify({"status": "Hunt finished", "results": results})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
